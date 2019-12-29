@@ -12,6 +12,8 @@ public class VoronoiGenerator : MonoBehaviour{
     private bool debugVoronoi = false;  // Show debug logs
     [SerializeField]
     private bool showMarkerPlacementDebug = false;  // Show coordinates of Regions in console
+    [SerializeField]
+    private Text progressText;
 
     [Header("Centre Markers")]
     [SerializeField]
@@ -30,6 +32,8 @@ public class VoronoiGenerator : MonoBehaviour{
     private bool showMegaRegion = false;
     [SerializeField]
     private bool showMegaRegionLines = false;
+    [SerializeField]
+    private bool solidLine = false;
     [SerializeField]
     private float linePointDensity = 20f;
 
@@ -56,8 +60,6 @@ public class VoronoiGenerator : MonoBehaviour{
         renderer = GetComponent<Renderer>();
 
         GenerateTexture();
-
-        //SaveTextureAsPNG(texture, Application.dataPath + "/VoronoiGen.png");
     }
 
     /// <summary>
@@ -105,6 +107,7 @@ public class VoronoiGenerator : MonoBehaviour{
     }
 
     private void RandomPoints(){
+        UpdateProgressInformation("Creating region points.");
         // Clear the markers list
         regions.Clear();
         if(debugVoronoi) Debug.Log("Markers list cleared.");
@@ -119,6 +122,7 @@ public class VoronoiGenerator : MonoBehaviour{
     }
 
     private void PaintMarkers(){
+        UpdateProgressInformation("Drawing region markers.");
         // For each Region, paint a pixel at it's coordinates
         if(showMarkers){
             foreach(Region region in regions){
@@ -153,6 +157,7 @@ public class VoronoiGenerator : MonoBehaviour{
     }
 
     private void AllocatePixels(){
+        UpdateProgressInformation("Allocating region nodes.");
         // ! Change to each pixel find their closest region (multithread) then add them to region ownedPixels
         // Ensure there are regions in the regions list
         if(regions.Count > 0){
@@ -198,6 +203,7 @@ public class VoronoiGenerator : MonoBehaviour{
     }
 
     private void CreateMegaRegions(){
+        UpdateProgressInformation("Creating MegaRegions.");
         megaRegions.Clear();
         // List of regions within distance threshold
         List<Region> closeRegions = new List<Region>();
@@ -251,6 +257,7 @@ public class VoronoiGenerator : MonoBehaviour{
 
     // Colours a each pixel that belongs to a region of the region's colour
     private void ColourRegion(Region region){
+        UpdateProgressInformation("Colouring Regions.");
         // Iterate through each owned pixel
         foreach(Vector2Int coord in region.ownedPixels){
             // Set the pixel to the colour of the region
@@ -261,6 +268,7 @@ public class VoronoiGenerator : MonoBehaviour{
 
     // For visualising MegaRegions
     private void ColourMegaRegion(){
+        UpdateProgressInformation("Colouring MegaRegions.");
         foreach(MegaRegion megaRegion in megaRegions){
             foreach(Region region in megaRegion.ownedRegions){
                 foreach(Vector2Int point in region.ownedPixels){
@@ -291,6 +299,7 @@ public class VoronoiGenerator : MonoBehaviour{
     }
 
     private void MegaRegionLines(){
+        UpdateProgressInformation("Calculating and Drawing MegaRegion spines.");
         // Find closest MegaRegion neighbour
         // Every megaregion
         foreach(MegaRegion megaRegion in megaRegions){
@@ -322,6 +331,11 @@ public class VoronoiGenerator : MonoBehaviour{
                     dir.Normalize();
                     float dist = Vector2.Distance(region.centre, closestRegion.centre);
                     
+                    // Make lines solid for visualisation.
+                    if(solidLine){
+                        linePointDensity = closestDistance;
+                    }
+
                     Vector2 increment = (dist/linePointDensity) * dir;
                     Vector2 nextValue =   region.centre;
 
@@ -367,6 +381,11 @@ public class VoronoiGenerator : MonoBehaviour{
            return String.Empty;   
         }
     }
+    
+    private void UpdateProgressInformation(String progress){
+        //Debug.Log(progress);
+        progressText.text = progress;
+    }
 }
 
 public class Region{
@@ -390,3 +409,8 @@ public class Node{
     public Vector2Int pos;
     public Region closestRegion;
 }
+
+// TODO Convert generator to using Node instead of Vector2Ints
+// TODO Multithread
+// TODO Progress bar/text
+// TODO Save different textures and swap them for different colourings (region, megaregion)
