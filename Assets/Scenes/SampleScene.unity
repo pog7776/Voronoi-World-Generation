@@ -236,9 +236,10 @@ MonoBehaviour:
   _useMegaRegions: 1
   _megaRegionThreshold: {x: 1, y: 100}
   showMegaRegion: 1
+  megaRegionColour: 2
   showMegaRegionLines: 1
-  solidLine: 1
-  linePointDensity: 20
+  solidLine: 0
+  linePointDensity: 3
   _density: 100
   densitySlider: {fileID: 1888963938}
 --- !u!1 &490005815

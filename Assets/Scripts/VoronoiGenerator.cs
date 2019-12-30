@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Threading;
 using UnityEngine;
 using UnityEngine.UI;
 using Random = UnityEngine.Random;
@@ -30,6 +31,14 @@ public class VoronoiGenerator : MonoBehaviour{
     public Vector2Int _megaRegionThreshold = new Vector2Int(10,20);   // Threshold for mega regions
     [SerializeField]
     private bool showMegaRegion = false;
+    private enum MegaRegionColourType{
+        Solid,
+        Pattern,
+        Gradient
+    }
+    [SerializeField]
+    MegaRegionColourType megaRegionColour = MegaRegionColourType.Solid;
+    
     [SerializeField]
     private bool showMegaRegionLines = false;
     [SerializeField]
@@ -62,6 +71,8 @@ public class VoronoiGenerator : MonoBehaviour{
         GenerateTexture();
     }
 
+
+
     /// <summary>
 	/// Generate voronoi texture.
 	/// </summary>
@@ -81,8 +92,9 @@ public class VoronoiGenerator : MonoBehaviour{
 
         // MegaRegion Visualisations
         if(_useMegaRegions){
-            if(showMegaRegion) ColourMegaRegion();
             MegaRegionLines();
+            if(showMegaRegion) ColourMegaRegion();
+            if(showMegaRegionLines )DrawLines();
         }
 
         PaintMarkers();
@@ -90,6 +102,8 @@ public class VoronoiGenerator : MonoBehaviour{
         renderer.material.SetTexture("_MainTex", texture);
         // return texture;
     }
+
+
 
     /// <summary>
 	/// Set the region density (amount of regions).
@@ -151,7 +165,7 @@ public class VoronoiGenerator : MonoBehaviour{
         region.id = regions.Count;
         region.name = "Region " + region.id;
         region.centre = new Vector2Int(Random.Range(0, _textureWidth), Random.Range(0, _textureHeight));
-        region.ownedPixels = new List<Vector2Int>();
+        region.ownedNodes = new List<Node>();
         region.colour = new Color(Random.Range(0f, 1f), Random.Range(0f, 1f), Random.Range(0f, 1f), 1f);
         return region;
     }
@@ -170,13 +184,23 @@ public class VoronoiGenerator : MonoBehaviour{
 
             if(debugVoronoi){
                 foreach(Region region in regions){
-                    Debug.Log(region.name + " owns " + region.ownedPixels.Count + " pixels.");
+                    Debug.Log(region.name + " owns " + region.ownedNodes.Count + " pixels.");
                 }
             }
         }
     }
 
+    // IEnumerator for getting closest regions
     private IEnumerator FindOwnerRegion(Vector2Int point){
+        // Add pixel to region ownedPixels
+        Region closeOne = GetClosestRegion(point);
+        closeOne.ownedNodes.Add(new Node(new Vector2Int(point.x, point.y), closeOne));
+        yield return null;
+    }
+    
+
+    // Function to get closest region
+    private Region GetClosestRegion(Vector2Int point){
         Region closestRegion = regions[0];
         int closestDistance = PointDistance(point, closestRegion.centre);
         // For every region, check which is close
@@ -190,9 +214,8 @@ public class VoronoiGenerator : MonoBehaviour{
                 closestDistance = regionDistance;
             }
         }
-        // Add pixel to region ownedPixels
-        closestRegion.ownedPixels.Add(new Vector2Int(point.x, point.y));
-        yield return null;
+        
+        return closestRegion;
     }
 
     /// <summary>
@@ -250,6 +273,7 @@ public class VoronoiGenerator : MonoBehaviour{
         megaRegion.id = megaRegions.Count;
         megaRegions.Add(megaRegion);
         megaRegion.ownedRegions = new List<Region>();
+        megaRegion.spinePoints = new List<Vector2Int>();
         megaRegion.name = "MegaRegion " + megaRegion.id;    // ! Add biome type when biome is added
         megaRegion.colour = new Color(Random.Range(0f, 1f), Random.Range(0f, 1f), Random.Range(0f, 1f), 1f);
         return megaRegion;
@@ -259,9 +283,9 @@ public class VoronoiGenerator : MonoBehaviour{
     private void ColourRegion(Region region){
         UpdateProgressInformation("Colouring Regions.");
         // Iterate through each owned pixel
-        foreach(Vector2Int coord in region.ownedPixels){
+        foreach(Node coord in region.ownedNodes){
             // Set the pixel to the colour of the region
-            texture.SetPixel(coord.x, coord.y, region.colour);
+            texture.SetPixel(coord.pos.x, coord.pos.y, region.colour);
         }
         //texture.Apply();
     }
@@ -269,29 +293,71 @@ public class VoronoiGenerator : MonoBehaviour{
     // For visualising MegaRegions
     private void ColourMegaRegion(){
         UpdateProgressInformation("Colouring MegaRegions.");
+
+        int largestDistance = -1;
+
         foreach(MegaRegion megaRegion in megaRegions){
             foreach(Region region in megaRegion.ownedRegions){
-                foreach(Vector2Int point in region.ownedPixels){
+                foreach(Node point in region.ownedNodes){
+                    //Distance
+                    GetDistanceFromSpine(point, megaRegion);
+                    if(point.distanceFromSpine > largestDistance){
+                        largestDistance = point.distanceFromSpine;
+                    }
+                }
+            }
+
+        // TODO make this dynamic based on the biome object
+        int segment = largestDistance/5;    // Divide by number of sub biomes.
+
+            foreach(Region region in megaRegion.ownedRegions){
+                foreach(Node point in region.ownedNodes){
 
                     // Pattern
-                    /*
-                    // If megaregion ID is even
-                    if(megaRegion.id % 2 == 0){
-                        // If x is even and y is odd
-                        if(point.x % 2 == 0 && !(point.y % 2 == 0)){
-                            texture.SetPixel(point.x, point.y, megaRegion.colour);
+                    if(megaRegionColour == MegaRegionColourType.Pattern){
+                        // If megaregion ID is even
+                        if(megaRegion.id % 2 == 0){
+                            // If x is even and y is odd
+                            if(point.pos.x % 2 == 0 && !(point.pos.y % 2 == 0)){
+                                texture.SetPixel(point.pos.x, point.pos.y, megaRegion.colour);
+                            }
+                        }
+                        else{
+                            // If y is even
+                            if(point.pos.y % 2 == 0){// && !(point.pos.y % 2 == 0)){
+                                texture.SetPixel(point.pos.x, point.pos.y, megaRegion.colour);
+                            }
                         }
                     }
-                    else{
-                        // If y is even
-                        if(point.y % 2 == 0){// && !(point.y % 2 == 0)){
-                            texture.SetPixel(point.x, point.y, megaRegion.colour);
-                        }
-                    }
-                    */
 
                     // Solid
-                    texture.SetPixel(point.x, point.y, megaRegion.colour);
+                    if(megaRegionColour == MegaRegionColourType.Solid){
+                        texture.SetPixel(point.pos.x, point.pos.y, megaRegion.colour);
+                    }
+
+                    //Distance
+                    //! paint based on distance
+                    if(megaRegionColour == MegaRegionColourType.Gradient){
+                        if(point.distanceFromSpine <= segment){
+                            texture.SetPixel(point.pos.x, point.pos.y, megaRegion.colour * new Color(0.2f,0.2f,0.2f));
+                        }
+                        
+                        if(point.distanceFromSpine > segment && point.distanceFromSpine <= segment*2){
+                            texture.SetPixel(point.pos.x, point.pos.y, megaRegion.colour * new Color(0.3f,0.3f,0.3f));
+                        }
+                        
+                        if(point.distanceFromSpine > segment*2 && point.distanceFromSpine <= segment*3){
+                            texture.SetPixel(point.pos.x, point.pos.y, megaRegion.colour * new Color(0.4f,0.4f,0.4f));
+                        }
+                        
+                        if(point.distanceFromSpine > segment*3 && point.distanceFromSpine <= segment*4){
+                            texture.SetPixel(point.pos.x, point.pos.y, megaRegion.colour * new Color(0.5f,0.5f,0.5f));
+                        }
+                        
+                        if(point.distanceFromSpine > segment*4){
+                            texture.SetPixel(point.pos.x, point.pos.y, megaRegion.colour * new Color(0.6f,0.6f,0.6f));
+                        }
+                    }
                 }
             }
         }
@@ -324,7 +390,7 @@ public class VoronoiGenerator : MonoBehaviour{
 
                 // Calculate Line
                 if(closestRegion != null && closestRegion.centre != region.centre){
-                    List<Vector2Int> linePoints = new List<Vector2Int>();
+                    //List<Vector2Int> linePoints = new List<Vector2Int>();
 
                     // Line direction
                     Vector2 dir = closestRegion.centre - region.centre;
@@ -344,20 +410,43 @@ public class VoronoiGenerator : MonoBehaviour{
                         int pointX = Mathf.RoundToInt(nextValue.x);
                         int pointY = Mathf.RoundToInt(nextValue.y);
 
-                        linePoints.Add(new Vector2Int(pointX, pointY));
+                        megaRegion.spinePoints.Add(new Vector2Int(pointX, pointY));
                         //points.Add(startPoint+increment);
                     }
 
                     // Draw Lines
-                    if(showMegaRegionLines){
-                        foreach(Vector2Int point in linePoints){
-                            texture.SetPixel(point.x, point.y, Color.white);
-                        }
-                    }
+                    // if(showMegaRegionLines){
+                    //     foreach(Vector2Int point in megaRegion.spinePoints){
+                    //         texture.SetPixel(point.x, point.y, Color.white);
+                    //     }
+                    // }
                 }
             }
         }
         //texture.Apply();
+    }
+
+    private void DrawLines(){
+        foreach(MegaRegion megaRegion in megaRegions){
+            // Draw Lines
+            foreach(Vector2Int point in megaRegion.spinePoints){
+                texture.SetPixel(point.x, point.y, Color.white);
+            }
+        }
+    }
+
+    // 
+    private void GetDistanceFromSpine(Node point, MegaRegion megaRegion){
+        // Set closest spinePoint to point 0
+        int closestDistance = PointDistance(point.pos, megaRegion.spinePoints[0]);
+
+        foreach(Vector2Int spinePoint in megaRegion.spinePoints){
+            int distance = PointDistance(point.pos, spinePoint);
+            if(distance < closestDistance){
+                closestDistance = distance;
+            }
+        }
+        point.distanceFromSpine = closestDistance;
     }
 
     /// <summary>
@@ -392,7 +481,7 @@ public class Region{
     public int id;
     public string name;
     public Vector2Int centre;
-    public List<Vector2Int> ownedPixels;
+    public List<Node> ownedNodes;
     public Color colour;    //! Change to biome ... or not? biome colour? idk, maybe a list of colours?
     public bool partOfMega = false;
     public bool drawnLine = false;
@@ -402,12 +491,19 @@ public class MegaRegion{
     public int id;
     public string name;
     public List<Region> ownedRegions;
+    public List<Vector2Int> spinePoints;
     public Color colour;    //! Change to biome
 }
 
 public class Node{
     public Vector2Int pos;
     public Region closestRegion;
+    public int distanceFromSpine;
+
+    public Node(Vector2Int pos, Region closestRegion = null){
+        this.pos = pos;
+        this.closestRegion = closestRegion;
+    }
 }
 
 // TODO Convert generator to using Node instead of Vector2Ints
